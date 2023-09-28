@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "custome-proemtheus-exporter"
+version = "0.1.0"
+description = ""
+authors = ["dev0Guy <97923827+dev0Guy@users.noreply.github.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "<3.13,>=3.9"
+typer = {extras = ["all"], version = "^0.9.0"}
+prometheus-client = "^0.17.1"
+kubernetes = "^28.1.0"
+pydantic = "^2.3.0"
+scipy = "^1.11.2"
+kopf = "^1.36.2"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
