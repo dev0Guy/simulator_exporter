@@ -1,0 +1,10 @@
+
+
+
+simulate.gpu.distribution.loc: "20"
+simulate.gpu.distrubution.scale: "3"
+simulate.cpu.distribution: "norm"
+simulate.gpu.distribution: "norm"
+simulate.distrib: "norm"
+simulate.shutdown: "1m"
+simulate.interval: "5s"

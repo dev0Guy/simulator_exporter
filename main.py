@@ -51,21 +51,31 @@ def simulate(
     path: Annotated[Optional[Path], typer.Option(help="Replay load usecase.")] = Path(
         "/"
     ),
-    interval: Annotated[
+    push_interval: Annotated[
         Optional[int], typer.Option(help="Prometheus push interval")
     ] = 5,
+    shudown_interval: Annotated[
+        Optional[int],
+        typer.Option(help="How nuch time to delete pod after shutdown time"),
+    ] = 1,
 ):
     """
     Simulate pod metrics
     """
     simulate = Simulate(
-        file=path, interval=interval, prom_port=prom_port, metrics=METRICS
+        file=path,
+        push_interval=push_interval,
+        shudown_interval=shudown_interval,
+        prom_port=prom_port,
+        metrics=METRICS,
     )
     simulate.run()
 
 
 @app.command()
-def generate(path: Annotated[Path, typer.Option(help="File Path")]):
+def generate(
+    path: Annotated[Path, typer.Option(help="File generate metatadata Path")] = None
+):
     """
     Generate Use case of pod load
     """
@@ -75,6 +85,7 @@ def generate(path: Annotated[Path, typer.Option(help="File Path")]):
 if __name__ == "__main__":
     import logging
 
+    # TODO: today only work in deployment with one pod, if have couple the moment one of them stop all of them will be killed as well, nned to change
     logging.basicConfig(
         level=logging.ERROR,  # Set the desired logging level (e.g., logging.DEBUG, logging.INFO)
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",

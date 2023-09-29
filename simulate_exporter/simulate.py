@@ -11,7 +11,7 @@ from typing import (
 )
 from prometheus_client import start_http_server, Metric
 from .utils import LogColor
-from datetime import datetime
+from datetime import datetime, timedelta
 import scipy.stats as stats
 import kubernetes as k8s
 import pathlib
@@ -21,7 +21,7 @@ import kopf
 import re
 
 
-def kubernetese_load_config():
+def kubernetese_load_config() -> Tuple[k8s.client.AppsV1Api, k8s.client.CoreV1Api]:
     try:
         logging.info("in cluster load")
         k8s.config.load_incluster_config()
@@ -31,10 +31,10 @@ def kubernetese_load_config():
     except Exception as e:
         logging.fatal(e)
     finally:
-        return k8s.client.CoreV1Api()
+        return k8s.client.AppsV1Api(), k8s.client.CoreV1Api()
 
 
-V1: k8s.client.CoreV1Api = kubernetese_load_config()
+API, V1 = kubernetese_load_config()
 
 
 class KopFunctions:
@@ -70,16 +70,20 @@ class Structs:
     class Simulated:
         class Pod(pydantic.BaseModel):
             pod: "Structs.Original.Pod"
-            shutdown: str
-            interval: str
+            shutdown: timedelta
+            interval: timedelta
             resource_usage_generator: dict
             _is_schedule: bool = False
-            _start_time: Optional[datetime] = None
+            _start_time: datetime = pydantic.PrivateAttr(default_factory=datetime.now)
             _schedule_time: Optional[datetime] = None
 
-            def __init__(self, **data):
-                super().__init__(**data)
-                self._start_time = datetime.now()
+            @pydantic.validator("shutdown", pre=True, always=True)
+            def _shutdown(cls, value: str):
+                return timedelta(seconds=int(value))
+
+            @pydantic.validator("interval", pre=True, always=True)
+            def _interval(cls, value: str):
+                return timedelta(seconds=int(value))
 
             @property
             def volumes(self) -> Dict[str, "Structs.Original.PVC"]:
@@ -104,6 +108,14 @@ class Structs:
             @property
             def containers(self) -> Dict[str, "Structs.Original.Container"]:
                 return self.pod.containers
+
+            @property
+            def assignment_time(self) -> datetime:
+                return self._schedule_time
+
+            @property
+            def queue_enter_time(self) -> datetime:
+                return self._start_time
 
             @node.setter
             def node(self, value: str):
@@ -182,8 +194,6 @@ class Utils:
         "Ti": 1024**4,  # Tebi
     }
 
-    V1: k8s.client.CoreV1Api = k8s.client.CoreV1Api()
-
     @staticmethod
     def kubernetese_unit_convertor(resource: dict[str, str]) -> float:
         def func(unit: str):
@@ -213,6 +223,34 @@ class Utils:
                 name=pvc_name, capacity=pvc_capacity.get("storage")
             )
             return name, pvc
+
+    @staticmethod
+    def get_deployment_name(pod: dict) -> Optional[str]:
+        for owner_reference in pod.get("metadata", {}).get("ownerReferences", []):
+            kind = owner_reference.get("kind")
+            owner_name: Optional[str] = None
+            match kind:
+                case "Deployment":
+                    owner_name = owner_reference.get("kind")
+                case "ReplicaSet":
+                    name = owner_reference.get("name")
+                    replicaset = API.read_namespaced_replica_set(
+                        name=name, namespace=pod.metadata.namespace
+                    )
+                    owner_references = replicaset.metadata.owner_references
+                    if owner_references:
+                        # Iterate through owner references
+                        for owner_reference in owner_references:
+                            owner_kind = (
+                                owner_reference.kind
+                            )  # Kind of the owning resource
+                            owner_name = (
+                                owner_reference.name
+                            )  # Name of the owning resource
+                case _:
+                    pass
+            return owner_name
+        return None
 
 
 class NestedDict(dict):
@@ -317,8 +355,9 @@ class SimulateConfig(Config):
 
 class Simulate(pydantic.BaseModel):
     file: pathlib.Path
-    interval: int
     prom_port: int
+    push_interval: int
+    shudown_interval: int
     metrics: Dict[str, Tuple[Type[Setters.MetricSetter], Annotated[Any, "Metric"]]]
     _registration: Dict[str, Structs.Simulated.Pod] = pydantic.PrivateAttr(
         default_factory=dict
@@ -326,9 +365,51 @@ class Simulate(pydantic.BaseModel):
     _config: Config = pydantic.PrivateAttr(default_factory=SimulateConfig)
 
     def _register_kopf_functions(self):
-        kopf.timer("v1", "pods", interval=self.interval)(self._push_pod_metrics)
+        kopf.timer("v1", "pods", interval=self.push_interval)(self._push_pod_metrics)
+        kopf.timer("v1", "pods", interval=self.shudown_interval)(self._pod_shutdowner)
         kopf.on.create("v1", "pods")(self._registeration_of_pod)
         kopf.on.startup()(KopFunctions.startup())
+
+    def _pod_shutdowner(
+        self,
+        logger: logging,
+        uid: str,
+        name: str,
+        spec: dict,
+        body: dict,
+        namespace: str,
+        **kwargs,
+    ):
+        try:
+            if uid in self._registration:
+                pod: Structs.Simulated.Pod = self._registration[uid]
+                dep_name = Utils.get_deployment_name(body)
+                assignment_time: Optional[datetime] = pod.assignment_time
+                current_time: datetime = datetime.now()
+                pod_not_assigned_yet: bool = not assignment_time
+                if pod_not_assigned_yet:
+                    return
+                pod_as_expired = (assignment_time + pod.shutdown) <= current_time
+                if pod_as_expired:
+                    del self._registration[uid]
+                    if dep_name:
+                        print(dep_name)
+                        scale = API.read_namespaced_deployment_scale(
+                            name=dep_name, namespace=namespace
+                        )
+                        scale.spec.replicas = 0
+                        API.replace_namespaced_deployment_scale(
+                            dep_name, namespace, scale
+                        )
+                    patch = [
+                        {"op": "replace", "path": "/status/phase", "value": "Succeeded"}
+                    ]
+                    V1.patch_namespaced_pod_status(
+                        name=name, namespace=namespace, body=patch
+                    )
+                    LogColor.info(f"Shutdown pod: {name} with id {uid}")
+        except Exception as e:
+            LogColor.error(e)
 
     @classmethod
     def should_pod_be_simualted(cls, config: Config, pod: dict) -> bool:
@@ -449,6 +530,7 @@ class Simulate(pydantic.BaseModel):
                     resource_usage_generator=dist_cfg,
                     **cfg,
                 )
+                self._registration[uid].node = spec.get("nodeName")
                 LogColor.info(f"Pod {name} [{uid}], has been registered")
             else:
                 LogColor.warn(f"Pod {name} [{uid}],  already as been registered")
