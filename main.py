@@ -1,32 +1,83 @@
-from typing import Optional
-from simulate_exporter import MetricSimulatorExporter, AnnotationParser
-import logging
+from typing import Optional, Annotated, Dict
+from simulate_exporter import Simulate, Setters, LogColor
+from prometheus_client import Gauge
+from pathlib import Path
+import warnings
 import typer
-import kopf
 
-"""
-Entry point of the script: 
-only has one script, the one that run the simulator it self.
-"""
+app = typer.Typer(rich_markup_mode="rich")
+warnings.filterwarnings("ignore", category=FutureWarning)
 
 
-def kopf_startup(settings: kopf.OperatorSettings, **_):
-    settings.posting.level = logging.ERROR
-    # don't show kopf defualt logs only the one providded
-    settings.posting.enabled = False
+METRICS = {
+    "cpu": (
+        Setters.CPUMetricSetter,
+        Gauge(
+            "container_cpu_usage",
+            "cpu usage of containers in the machine.",
+            ["namespace", "node", "pod", "container"],
+        ),
+    ),
+    "memory": (
+        Setters.MemoryMetricSetter,
+        Gauge(
+            "container_memory_usage",
+            "memory usage of the containers in machine.",
+            ["namespace", "node", "pod", "container"],
+        ),
+    ),
+    "gpu": (
+        Setters.GPUMetricSetter,
+        Gauge(
+            "gpu_usage_percent",
+            "gpu usage of the containers in machine.",
+            ["namespace", "node", "pod", "container"],
+        ),
+    ),
+    "pvc": (
+        Setters.PVCMetricSetter,
+        Gauge(
+            "pvc_storage_usage_bytes",
+            "PVC Storage Usage in Bytes",
+            ["namespace", "node", "pod", "pvc"],
+        ),
+    ),
+}
 
 
-def main(prom_port: Optional[int] = 9153, simulate_interval: Optional[int] = 5):
+@app.command()
+def simulate(
+    prom_port: int,
+    path: Annotated[Optional[Path], typer.Option(help="Replay load usecase.")] = Path(
+        "/"
+    ),
+    interval: Annotated[
+        Optional[int], typer.Option(help="Prometheus push interval")
+    ] = 5,
+):
     """
-    Get optional arguments to the script, run the metric it'self
+    Simulate pod metrics
     """
-    parser = AnnotationParser
-    exporter = MetricSimulatorExporter(prom_port, parser)
-    kopf.timer("v1", "pods", interval=simulate_interval)(exporter.interval)
-    kopf.on.create("v1", "pods")(exporter.register_pod)
-    kopf.on.startup()(kopf_startup)
-    kopf.run()
+    simulate = Simulate(
+        file=path, interval=interval, prom_port=prom_port, metrics=METRICS
+    )
+    simulate.run()
+
+
+@app.command()
+def generate(path: Annotated[Path, typer.Option(help="File Path")]):
+    """
+    Generate Use case of pod load
+    """
+    pass
 
 
 if __name__ == "__main__":
-    typer.run(main)
+    import logging
+
+    logging.basicConfig(
+        level=logging.ERROR,  # Set the desired logging level (e.g., logging.DEBUG, logging.INFO)
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",  # Customize the date and time format
+    )
+    app()

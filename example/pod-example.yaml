@@ -1,0 +1,71 @@
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: my-pv
+spec:
+  capacity:
+    storage: 5Gi  # Adjust the storage capacity as needed
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: standard  # Specify the desired storage class here
+  hostPath:
+    path: /mnt/data  # Use a hostPath, or choose another storage type
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: my-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi  # Set the requested storage for the PVC
+  storageClassName: standard # Specify the same storage class as in the PV
+  volumeName: my-pv  # Specify the name of the PV to claim
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dd-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+      annotations:
+        simulate.gpu.distribution.loc: "20"
+        simulate.gpu.distrubution.scale: "3"
+        simulate.cpu.distribution: "norm"
+        simulate.gpu.distribution: "norm"
+        simulate.distrib: "norm"
+        simulate.shutdown: "1m"
+        simulate.interval: "5s"
+        # simulate.cpu: "uniform"
+        # simulate.memory: "uniform"
+        # simulate.pvc: "uniform"
+        # simulate.gpu: "uniform"
+    spec:
+      containers:
+        - name: nginx-container
+          image: nginx:latest
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              nvidia.com/gpu: "0"
+              memory: "64Mi"
+              cpu: "250m"
+            limits:
+              nvidia.com/gpu: "0"
+              memory: "128Mi"
+              cpu: "500m"
+      volumes:
+        - name: data-volume
+          persistentVolumeClaim:
+            claimName: my-pvc
