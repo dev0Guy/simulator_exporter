@@ -86,6 +86,7 @@ if __name__ == "__main__":
     import logging
 
     # TODO: today only work in deployment with one pod, if have couple the moment one of them stop all of them will be killed as well, nned to change
+    # TODO: change to work with an deployment annotation as well
     logging.basicConfig(
         level=logging.ERROR,  # Set the desired logging level (e.g., logging.DEBUG, logging.INFO)
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",

@@ -29,14 +29,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: dd-deployment
-  annotations:
-        simulate.gpu.distribution.loc: "20"
-        simulate.gpu.distrubution.scale: "3"
-        simulate.cpu.distribution: "norm"
-        simulate.gpu.distribution: "norm"
-        simulate.distrib: "norm"
-        simulate.shutdown: "100"
-        simulate.interval: "5"
 spec:
   replicas: 1
   selector:
@@ -46,6 +38,14 @@ spec:
     metadata:
       labels:
         app: nginx
+      annotations:
+        simulate.gpu.distribution.loc: "20"
+        simulate.gpu.distrubution.scale: "3"
+        simulate.cpu.distribution: "norm"
+        simulate.gpu.distribution: "norm"
+        simulate.distrib: "norm"
+        simulate.shutdown: "100"
+        simulate.interval: "5"
     spec:
       containers:
         - name: nginx-container

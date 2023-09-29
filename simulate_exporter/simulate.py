@@ -368,7 +368,43 @@ class Simulate(pydantic.BaseModel):
         kopf.timer("v1", "pods", interval=self.push_interval)(self._push_pod_metrics)
         kopf.timer("v1", "pods", interval=self.shudown_interval)(self._pod_shutdowner)
         kopf.on.create("v1", "pods")(self._registeration_of_pod)
+        kopf.on.create("apps", "v1", "deployments")(self._inherent_deployment_anotation)
         kopf.on.startup()(KopFunctions.startup())
+
+    def _inherent_deployment_anotation(
+        self,
+        logger: logging,
+        uid: str,
+        name: str,
+        spec: dict,
+        body: dict,
+        namespace: str,
+        **kwargs,
+    ):
+        prefix: str = self._config.prefix()
+        annotations: dict = dict(
+            map(
+                lambda itm: (prefix + itm[0], itm[1]),
+                self._extract_annotations(config=self._config, body=body).items(),
+            )
+        )
+        pod_template = spec["template"]
+        if "metadata" not in pod_template:
+            pod_template["metadata"] = {}
+        if "annotations" not in pod_template["metadata"]:
+            pod_template["metadata"]["annotations"] = {}
+        pod_template["metadata"]["annotations"].update(annotations)
+        try:
+            API.patch_namespaced_deployment(
+                name=name,
+                namespace=namespace,
+                body={"spec": {"template": pod_template}},
+            )
+            LogColor.info(
+                f"Annotations copied from Deployment to Pod template in {name}"
+            )
+        except k8s.client.exceptions.ApiException as e:
+            LogColor.error(f"Error updating Deployment {name}: {str(e)}")
 
     def _pod_shutdowner(
         self,
@@ -413,12 +449,12 @@ class Simulate(pydantic.BaseModel):
 
     @classmethod
     def should_pod_be_simualted(cls, config: Config, pod: dict) -> bool:
-        return bool(cls._extract_pod_annotations(config=config, pod=pod))
+        return bool(cls._extract_annotations(config=config, body=pod))
 
     @classmethod
-    def _extract_pod_annotations(cls, config: Config, pod: dict) -> Dict[str, Any]:
+    def _extract_annotations(cls, config: Config, body: dict) -> Dict[str, Any]:
         prefix = config.prefix()
-        annotations: dict = pod.metadata.annotations
+        annotations: dict = body.metadata.annotations
         return dict(
             map(
                 lambda tup: (tup[0][len(prefix) :], tup[1]),
@@ -432,7 +468,7 @@ class Simulate(pydantic.BaseModel):
         namespace: str = pod.metadata["namespace"]
         name: str = pod.metadata["name"]
         volumes: list = pod.spec.get("volumes", [])
-        annotations: dict = cls._extract_pod_annotations(config=config, pod=pod)
+        annotations: dict = cls._extract_annotations(config=config, body=pod)
         volumes: Dict[str, Structs.Original.PVC] = dict(
             filter(
                 lambda x: x,
