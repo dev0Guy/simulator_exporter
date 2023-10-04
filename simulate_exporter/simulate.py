@@ -1,17 +1,23 @@
-from typing import Dict, Tuple, Annotated, Type, Any
+from typing import Dict, Tuple, Annotated, Type, Any, List
 from simulate_exporter.k8s_objects import Pod, SimulatedPod
 from simulate_exporter.prom import MetricSetter, Metric, start_http_server
-from simulate_exporter.utils import LogColor
+from simulate_exporter.utils import LogColor, kubernetese_load_config
+from simulate_exporter.k8s_objects import get_deployment_name
+from typing import Optional
+from datetime import datetime
 import pydantic
 import logging
 import kopf
+
+API , V1 = kubernetese_load_config()
 
 
 class Simulate(pydantic.BaseModel):
     prom_port: int
     push_interval: int
     shudown_interval: int
-    metrics: Dict[str, Tuple[Type[MetricSetter], Annotated[Any, "Metric"]]]
+    metrics: List[Type[MetricSetter]]
+    # metrics: Dict[str, Tuple[Type[MetricSetter], Annotated[Any, "Metric"]]]
     _registration: Dict[str, SimulatedPod] = pydantic.PrivateAttr(default_factory=dict)
 
     def register_kopf_functions(self) -> None:
@@ -45,7 +51,7 @@ class Simulate(pydantic.BaseModel):
             else:
                 LogColor.warn(f"Pod {name} [{uid}],  already as been registered")
         except Exception as e:
-            e.with_traceback()
+            # e.with_traceback()
             LogColor.error(e)
 
     def push_metrics(
@@ -69,9 +75,9 @@ class Simulate(pydantic.BaseModel):
                 LogColor.info("Pod Metrics are been pushed")
                 pod: SimulatedPod = self._registration[uid]
                 if not pod.is_assigned:
-                    self.node = spec["nodeName"]
+                    pod.node = spec["nodeName"]
                 else:
-                    pod.push_metrics(metrics=self.metrics)
+                    pod.push_metrics()
             elif SimulatedPod.should_be_simualted(annotations=annotations):
                 self.register(
                     logger=logger,
@@ -95,7 +101,36 @@ class Simulate(pydantic.BaseModel):
         namespace: str,
         **kwargs,
     ):
-        pass
+        try:
+            if uid in self._registration:
+                pod: SimulatedPod = self._registration[uid]
+                dep_name = get_deployment_name(body)
+                assignment_time: Optional[datetime] = pod.assignment_time
+                current_time: datetime = datetime.now()
+                pod_not_assigned_yet: bool = not assignment_time
+                if pod_not_assigned_yet:
+                    return
+                pod_as_expired = (assignment_time + pod.shutdown) <= current_time
+                if pod_as_expired:
+                    LogColor.info(f"Deleting pod {uid}")
+                    del self._registration[uid]
+                    if dep_name:
+                        scale = API.read_namespaced_deployment_scale(
+                            name=dep_name, namespace=namespace
+                        )
+                        scale.spec.replicas = 0
+                        API.replace_namespaced_deployment_scale(
+                            dep_name, namespace, scale
+                        )
+                    patch = [
+                        {"op": "replace", "path": "/status/phase", "value": "Succeeded"}
+                    ]
+                    V1.patch_namespaced_pod_status(
+                        name=name, namespace=namespace, body=patch
+                    )
+                    LogColor.info(f"Shutdown pod: {name} with id {uid}")
+        except Exception as e:
+            LogColor.error(e)
 
     def run(self):
         LogColor.info("[bold][Intializing][/bold] Register kube hooks ...")

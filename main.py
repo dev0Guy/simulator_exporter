@@ -32,40 +32,44 @@ class Helper:
         random_string = ''.join(secrets.choice(characters) for _ in range(length))
         return prefix + random_string + suffix    
 
-METRICS = {
-    "cpu": (
-        CPUMetricSetter,
-        Gauge(
-            "container_cpu_usage",
-            "cpu usage of containers in the machine.",
-            ["namespace", "node", "pod", "container"],
-        ),
-    ),
-    # "memory": (
-    #     MemoryMetricSetter,
-    #     Gauge(
-    #         "container_memory_usage",
-    #         "memory usage of the containers in machine.",
-    #         ["namespace", "node", "pod", "container"],
-    #     ),
-    # ),
-    "gpu": (
-        GPUMetricSetter,
-        Gauge(
-            "gpu_usage_percent",
-            "gpu usage of the containers in machine.",
-            ["namespace", "node", "pod", "container"],
-        ),
-    ),
-    "pvc": (
-        PVCMetricSetter,
-        Gauge(
-            "pvc_storage_usage_bytes",
-            "PVC Storage Usage in Bytes",
-            ["namespace", "node", "pod", "pvc"],
-        ),
-    ),
-}
+# METRICS = {
+#     "cpu": (
+#         CPUMetricSetter,
+#         Gauge(
+#             "container_cpu_usage",
+#             "cpu usage of containers in the machine.",
+#             ["namespace", "node", "pod", "container"],
+#         ),
+#     ),
+#     # "memory": (
+#     #     MemoryMetricSetter,
+#     #     Gauge(
+#     #         "container_memory_usage",
+#     #         "memory usage of the containers in machine.",
+#     #         ["namespace", "node", "pod", "container"],
+#     #     ),
+#     # ),
+#     "gpu": (
+#         GPUMetricSetter,
+#         Gauge(
+#             "gpu_usage_percent",
+#             "gpu usage of the containers in machine.",
+#             ["namespace", "node", "pod", "container"],
+#         ),
+#     ),
+#     "pvc": (
+#         PVCMetricSetter,
+#         Gauge(
+#             "pvc_storage_usage_bytes",
+#             "PVC Storage Usage in Bytes",
+#             ["namespace", "node", "pod", "pvc"],
+#         ),
+#     ),
+# }
+
+METRICS = [
+    PVCMetricSetter
+]
 
 @app.command()
 def simulate(
@@ -107,7 +111,6 @@ def generate(
     if not files:
         files: List[Path] = utils.FilesHelper.select_file_by_regex(regex=regex)
     gen = Generator(to_mock=files)
-    print(gen.to_mock)
     # if not output_path or output_path == Path("."):
     #     output_path = Helper.generate_name(length=10,prefix=os.getcwd(),suffix=".yaml")
     # out_dir_name: str = os.path.dirname(output_path)

@@ -6,47 +6,14 @@ from prometheus_client import start_http_server, Metric
 class MetricSetter(Protocol):
     @staticmethod
     def set(metric: Metric, value: Any, **kwargs):
-        ...
-
-
-class CPUMetricSetter(MetricSetter):
-    @staticmethod
-    def set(metric: Metric, value: Any, **kwargs):
         pod: str = kwargs.pop("name")
         containers: dict = kwargs.pop("containers")
         node: dict = kwargs.pop("node")
         namespace: dict = kwargs.pop("namespace")
-        for c_name, container in containers.items():
+        for c_name, _ in containers.items():
             metric.labels(
                 pod=pod, container=c_name, node=node, namespace=namespace
             ).set(value)
-
-
-class GPUMetricSetter(MetricSetter):
-    @staticmethod
-    def set(metric: Metric, value: Any, **kwargs):
-        pod: str = kwargs.pop("name")
-        containers: dict = kwargs.pop("containers")
-        node: dict = kwargs.pop("node")
-        namespace: dict = kwargs.pop("namespace")
-        for c_name, container in containers.items():
-            metric.labels(
-                pod=pod, container=c_name, node=node, namespace=namespace
-            ).set(value)
-
-
-class MemoryMetricSetter(MetricSetter):
-    @staticmethod
-    def set(metric: Metric, value: Any, **kwargs):
-        pod: str = kwargs.pop("name")
-        containers: dict = kwargs.pop("containers")
-        node: dict = kwargs.pop("node")
-        namespace: dict = kwargs.pop("namespace")
-        for c_name, container in containers.items():
-            metric.labels(
-                pod=pod, container=c_name, node=node, namespace=namespace
-            ).set(value)
-
 
 class PVCMetricSetter(MetricSetter):
     @staticmethod

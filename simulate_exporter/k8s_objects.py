@@ -1,38 +1,14 @@
-from typing import Optional, Dict, Tuple, Any, Annotated, Type, List
-from simulate_exporter.utils import NestedDict, diffrent, LogColor
-from simulate_exporter.prom import MetricSetter
+from simulate_exporter.utils import NestedDict, diffrent, LogColor, kubernetese_load_config
+from typing import Optional, Dict, Tuple, Any, List
+from datetime import datetime, timedelta
+from prometheus_client import Gauge
 from functools import cache
-from pprint import pprint
-import kubernetes as k8s
 import scipy.stats as stats
-import logging
+import numpy as np
 import pydantic
 import re
 
-
-def kubernetese_load_config() -> Tuple[k8s.client.AppsV1Api, k8s.client.CoreV1Api]:
-    """
-    Load k8s config acording to running env, Incluster or in minikube.
-
-    Returns:
-    - (k8s.client.AppsV1Api): k8s apps api
-    - ( k8s.client.CoreV1Api): k8s core api
-    """
-    try:  # Inside the cluster
-        logging.info("in cluster load")
-        k8s.config.load_incluster_config()
-    except (
-        k8s.config.config_exception.ConfigException
-    ):  # outside of the cluster a.k.a minikube
-        logging.info("minikube load")
-        k8s.config.load_kube_config()
-    except Exception as e:  # maybe minikube is not set (cannot connect)
-        return logging.fatal(e)
-    finally:  # At the end
-        return k8s.client.AppsV1Api(), k8s.client.CoreV1Api()
-
-
-_, V1 = kubernetese_load_config()
+API , V1 = kubernetese_load_config()
 
 KUBE_UNITS: dict[str, float] = {
     "n": 1e-9,  # nano
@@ -63,6 +39,34 @@ def kubernetese_unit_convertor(resource: dict[str, str]) -> float:
 
     if resource:
         return {key: func(val) for key, val in resource.items()}
+
+
+def get_deployment_name(pod: dict) -> Optional[str]:
+    for owner_reference in pod.get("metadata", {}).get("ownerReferences", []):
+        kind = owner_reference.get("kind")
+        owner_name: Optional[str] = None
+        match kind:
+            case "Deployment":
+                owner_name = owner_reference.get("kind")
+            case "ReplicaSet":
+                name = owner_reference.get("name")
+                replicaset = API.read_namespaced_replica_set(
+                    name=name, namespace=pod.metadata.namespace
+                )
+                owner_references = replicaset.metadata.owner_references
+                if owner_references:
+                    # Iterate through owner references
+                    for owner_reference in owner_references:
+                        owner_kind = (
+                            owner_reference.kind
+                        )  # Kind of the owning resource
+                        owner_name = (
+                            owner_reference.name
+                        )  # Name of the owning resource
+            case _:
+                pass
+        return owner_name
+    return None
 
 
 class PVC(pydantic.BaseModel):
@@ -131,11 +135,13 @@ class Container(pydantic.BaseModel):
 
 class Pod(pydantic.BaseModel):
     name: str
-    node: Optional[str]
     annotations: Dict[str, dict]
     namespace: str
     containers: Dict[str, Container]
     volumes: Dict[str, PVC]
+    _node: Optional[str] = pydantic.PrivateAttr(default=None)
+    _start_time: datetime = pydantic.PrivateAttr(default_factory=datetime.now)
+    _schedule_time: Optional[datetime] = None
 
     def __pre_init__(self, **data):
         pod: dict = data.pop("pod")
@@ -164,7 +170,7 @@ class Pod(pydantic.BaseModel):
         data["annotations"]: NestedDict = annotations
         data["volumes"]: Dict[str, PVC] = volumes
         data["namespace"]: str = namespace
-        data["node"]: str = node
+        data["_node"]: str = node
         data["name"]: str = name
         return data
 
@@ -186,42 +192,82 @@ class Pod(pydantic.BaseModel):
         return list(filter(lambda k: k.startswith(prefix), self.annotations))
 
     @property
+    def node(self) -> str:
+        return self._node
+        
+    @node.setter
+    def node(self,value: str):
+        self._node = value
+        if not self._schedule_time:
+            self._schedule_time = datetime.now()
+
+    @property
     def is_assigned(self) -> bool:
         return bool(self.node)
 
     @property
-    def labels(self) -> dict:
-        return {"node": self.node, "namespace": self.namespace}
-
+    def assignment_time(self) -> datetime:
+        return self._schedule_time
 
 class SimulatedPod(Pod):
-    _resource_usage_generator: dict = pydantic.PrivateAttr(default_factory=dict)
+    _shutdown: Optional[timedelta] = pydantic.PrivateAttr(default=None)
+    _metrics: dict = pydantic.PrivateAttr(default_factory=dict)
+    _generator: dict = pydantic.PrivateAttr(default_factory=dict)
+
+    def __init__(self, **data: dict):
+        super().__init__(**data)
+        # craete attribute _shutdown
+        shudown_time: str = self.annotations[self.prefix][self.shutdown_key]
+        self.__init_metrics__()
+        self._shutdown = timedelta(seconds=int(shudown_time))
+
+    def __init_metrics__(self):
+        sim_annotations: dict = self.annotations.pop(self.prefix)
+        sim_annotations, sim_cfg = self.add_defualt_values(
+            annotations=sim_annotations
+        )
+        for name, v in sim_cfg.items():
+            is_metric = self.distrib_prefix in v
+            if not is_metric:
+                continue
+            kwargs = v[self.distrib_prefix]
+            func = kwargs.pop(self.distrib_key)
+            distribution = getattr(stats, func)
+            # create metric
+            _metric =  Gauge(
+                name=name,
+                documentation=f"container_{name}_usage",
+                labelnames=["namespace", "node", "pod", "container"],
+            )
+            self._metrics[name] = _metric
+            # create resource generator
+            if not distribution:
+                raise ValueError(
+                    f"Unsupported distribution type: {distribution}"
+                )
+            try:
+                kwargs: dict = dict(map(lambda x: (x[0],float(x[1])), kwargs.items()))
+                self._generator[name] = distribution(**kwargs)
+            except TypeError as e:
+                e = str(e).strip("_parse_args()")
+                raise ValueError(e)
 
     @property
-    def resource_generator(self):
-        if not self._resource_usage_generator:
-            if self.prefix in self.annotations:
-                sim_annotations: dict = self.annotations.pop(self.prefix)
-                sim_annotations, sim_cfg = self.add_defualt_values(
-                    annotations=sim_annotations
-                )
-                for k, v in sim_cfg.items():
-                    if self.distrib_prefix in v:
-                        kwargs = v[self.distrib_prefix]
-                        func = kwargs.pop(self.distrib_key)
-                        distribution = getattr(stats, func)
-                        if not distribution:
-                            raise ValueError(
-                                f"Unsupported distribution type: {distribution}"
-                            )
-                        try:
-                            kwargs: dict = dict(map(lambda x: (x[0],float(x[1])), kwargs.items()))
-                            sim_cfg[k] = distribution(**kwargs)
-                        except TypeError as e:
-                            e = str(e).strip("_parse_args()")
-                            raise ValueError(e)
-                self._resource_usage_generator = sim_cfg
-        return self._resource_usage_generator
+    def settings(self) -> set:
+        return set(['shutdown','distribution','interval'])
+
+    @property
+    def shutdown(self) -> Optional[timedelta]:
+        return self._shutdown
+
+    @property
+    def metrics(self) -> dict:
+        return self._metrics
+
+    @classmethod
+    @property
+    def shutdown_key(self) -> str:
+        return 'shutdown'
 
     @classmethod
     @property
@@ -237,7 +283,7 @@ class SimulatedPod(Pod):
     @property
     def distrib_key(cls) -> str:
         return "type"
-
+    
     @classmethod
     def add_defualt_values(
         cls, annotations: dict, inplace: bool = False
@@ -246,7 +292,6 @@ class SimulatedPod(Pod):
             annotations = annotations.copy()
         config: dict = {
             "shutdown": annotations.get("shutdown", "5m"),
-            "interval": annotations.get("interval", "30s"),
             cls.distrib_prefix: {
                 cls.distrib_key: annotations.get(cls.distrib_key, "norm")
             },
@@ -270,22 +315,19 @@ class SimulatedPod(Pod):
         return any(filter(lambda name: name.startswith(cls.prefix + "."), annotations))
 
     def push_metrics(
-        self, metrics: Dict[str, Tuple[Type[MetricSetter], Annotated[Any, "Metric"]]]
+        self
     ) -> None:
-        for _name, (_setter, metric) in metrics.items():
-            if _name in self.resource_generator:
-                value = self.resource_generator[_name]  # .rvs(size=1)
-                value = next(iter(self.resource_generator[_name].rvs(size=1)))
-                _setter.set(
-                    metric=metric,
-                    value=value,
-                    namespace=self.namespace,
-                    name=self.name,
-                    containers=self.containers,
-                    volumes=self.volumes,
-                    node=self.node,
-                )
-            else:
-                LogColor.warn(
-                    f"Metric: {_name} has not been configured in pod {self.name} "
-                )
+        for _name,_metric in self.metrics.items():
+            containers: Dict[str,Container] = self.containers
+            namespace: str = self.namespace
+            node: str = self.node
+            pod: str = self.name
+            value = self._generator[_name].rvs(size=len(containers))
+            for idx, (c_name, container) in enumerate(containers.items()):
+                a_max: float = container.limits.get(_name, np.inf)
+                a_min: Optional[float] = container.requests.get(_name)
+                a_min: float = a_min / 1.5 if a_min else 0
+                _value = np.clip(value, a_min=a_min, a_max=a_max)[idx]
+                _metric.labels(
+                    pod=pod, container=c_name, node=node, namespace=namespace
+                ).set(_value)

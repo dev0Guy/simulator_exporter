@@ -1,0 +1,15 @@
+generate:
+  defualt: 
+    type: "distrib_type"
+    meu: "20m" 
+    sigma: "1"
+    limit: 1
+    requested: 10
+
+## other options
+---
+genearte: 
+  - type: "distribution_type"
+    resource: gpu
+    argm1: 1
+    argm2: 2

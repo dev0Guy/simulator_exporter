@@ -1,11 +1,37 @@
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import Optional, Dict, Tuple, Any, Annotated, Type, List
+import kubernetes as k8s
 import pydantic
+import logging
 import rich
 import yaml
 import os
 import glob
 import re
+
+
+
+
+def kubernetese_load_config() -> Tuple[k8s.client.AppsV1Api, k8s.client.CoreV1Api]:
+    """
+    Load k8s config acording to running env, Incluster or in minikube.
+
+    Returns:
+    - (k8s.client.AppsV1Api): k8s apps api
+    - ( k8s.client.CoreV1Api): k8s core api
+    """
+    try:  # Inside the cluster
+        logging.info("in cluster load")
+        k8s.config.load_incluster_config()
+    except (
+        k8s.config.config_exception.ConfigException
+    ):  # outside of the cluster a.k.a minikube
+        logging.info("minikube load")
+        k8s.config.load_kube_config()
+    except Exception as e:  # maybe minikube is not set (cannot connect)
+        return logging.fatal(e)
+    finally:  # At the end
+        return k8s.client.AppsV1Api(), k8s.client.CoreV1Api()
 
 
 def diffrent(first: dict, second: dict) -> dict:
