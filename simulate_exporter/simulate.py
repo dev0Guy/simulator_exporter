@@ -3,8 +3,10 @@ from simulate_exporter.prom import start_http_server
 from simulate_exporter.utils import LogColor, kubernetese_load_config
 from simulate_exporter.k8s_objects import get_deployment_name, SimulatedPod
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 import kubernetes as k8s
+import subprocess
 import pydantic
 import logging
 import kopf
@@ -16,6 +18,7 @@ class Simulate(pydantic.BaseModel):
     prom_port: int
     push_interval: int
     shudown_interval: int
+    files: List[Path]
     _registration: Dict[Annotated[str, "POD_UID"], SimulatedPod] = pydantic.PrivateAttr(
         default_factory=dict
     )
@@ -28,6 +31,25 @@ class Simulate(pydantic.BaseModel):
         kopf.timer("v1", "pods", interval=self.shudown_interval)(self.shutdown)
         kopf.on.create("v1", "pods")(self.register)
         kopf.on.delete("v1", "pods")(self.delete)
+        kopf.on.startup()(self.create_k8s_objects)
+        kopf.on.cleanup()(self.delete_k8s_objects)
+
+    def create_k8s_objects(self, **_):
+        for filename in self.files:
+            try:
+                subprocess.run(["kubectl", "apply", "-f", filename],stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+                LogColor.info(f"Successfully applied {filename}")
+            except subprocess.CalledProcessError as e:
+                LogColor.warn(f"Error applying {filename}: {e}")
+
+    def delete_k8s_objects(self, **_):
+        for filename in self.files:
+            try:
+                subprocess.run(["kubectl", "delete", "-f", filename],stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+                LogColor.info(f"Successfully Delete {filename}")
+            except subprocess.CalledProcessError as e:
+                continue
+                LogColor.error(f"Error Deleting {filename}: {e}")
 
     def inherent_deployment_anotation(
         self,
@@ -124,15 +146,16 @@ class Simulate(pydantic.BaseModel):
                 else:
                     pod.push_metrics()
             elif should_simulate_pod:
-                self.register(
-                    logger=logger,
-                    uid=uid,
-                    name=name,
-                    spec=spec,
-                    body=body,
-                    namespace=namespace,
-                    **kwargs,
-                )
+                pass
+                # self.register(
+                #     logger=logger,
+                #     uid=uid,
+                #     name=name,
+                #     spec=spec,
+                #     body=body,
+                #     namespace=namespace,
+                #     **kwargs,
+                # )
         except Exception as e:
             LogColor.error(e)
 
@@ -184,6 +207,7 @@ class Simulate(pydantic.BaseModel):
             f"[bold][Starting][/bold] Exporter running on: [bold]`http://localhost:{self.prom_port}`[/bold]"
         )
         start_http_server(port=self.prom_port)
+        LogColor.info(f"[bold][ApplyingFiles][/bold] {self.files}")
         kopf.run()
 
     def delete(

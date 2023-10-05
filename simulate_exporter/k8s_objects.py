@@ -115,7 +115,7 @@ class Container(pydantic.BaseModel):
         return limits
 
     @pydantic.validator("requests", pre=True, always=True)
-    def validate_limits(cls, _, values):
+    def validate_requests(cls, _, values):
         requests = values.get("resources").get("requests", {})
         requests = kubernetese_unit_convertor(requests)
         return requests

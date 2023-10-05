@@ -1,12 +1,13 @@
 from pathlib import Path
-from typing import Optional, Dict, Tuple, Any, Annotated, Type, List
+from typing import Tuple, List
 import kubernetes as k8s
-import pydantic
 import logging
+import secrets
+import string
 import rich
 import yaml
-import os
 import glob
+import os
 import re
 
 
@@ -36,6 +37,18 @@ def diffrent(first: dict, second: dict) -> dict:
     key_diff: set = set(first) - set(second)
     return {k: first[k] for k in key_diff}
 
+
+def get_matching_files(files: List[str], regex_pattern: str):
+    matching_files = []
+    for file in files:
+        if os.path.isfile(file):
+            matching_files.append(file)
+        elif os.path.isdir(file):
+            for root, _, filenames in os.walk(file):
+                for filename in filenames:
+                    if re.match(regex_pattern, filename):
+                        matching_files.append(os.path.join(root, filename))
+    return matching_files
 
 class NestedDict(dict):
     def __missing__(self, key):
@@ -108,3 +121,22 @@ class YamlHelper:
             )
         with open(path, "r") as file:
             return yaml.safe_load(file)
+
+
+class MainHelper:
+    @staticmethod
+    def load_yaml_file(path):
+        try:
+            with open(path, "r") as file:
+                return yaml.safe_load(file)
+        except yaml.error.YAMLError as e:
+            return LogColor.error(f"[bold]{path} is't valid yaml file:[/bold] \n  {e}")
+        except FileNotFoundError as e:
+            return LogColor.error(f"{e}")
+
+    @staticmethod
+    def generate_name(length: int = 10, prefix: str = "", suffix: str = ""):
+        characters = string.ascii_letters + string.digits
+        random_string = "".join(secrets.choice(characters) for _ in range(length))
+        return prefix + random_string + suffix
+
