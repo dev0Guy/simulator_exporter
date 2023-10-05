@@ -10,8 +10,6 @@ import glob
 import re
 
 
-
-
 def kubernetese_load_config() -> Tuple[k8s.client.AppsV1Api, k8s.client.CoreV1Api]:
     """
     Load k8s config acording to running env, Incluster or in minikube.

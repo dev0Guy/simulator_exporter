@@ -29,6 +29,19 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: dd-deployment
+  annotations:
+    simulate.pvc: "asdasd"
+    simulate.gpu: "asdasd"
+    simulate.memory: "asdasd"
+    simulate.cpu: "asdasd"
+    simulate.disk: "asdasd"
+    # simulate.gpu.distribution.loc: "2"
+    # simulate.gpu.distribution.scale: "3"
+    # simulate.cpu.distribution.type: "norm"
+    # simulate.gpu.distribution.type: "norm"
+    # simulate.distribution.type: "norm"
+    simulate.shutdown: "100"
+    simulate.interval: "5" 
 spec:
   replicas: 1
   selector:
@@ -36,19 +49,19 @@ spec:
       app: nginx
   template:
     metadata:
-      annotations:
-        simulate.pvc: "asdasd"
-        simulate.gpu: "asdasd"
-        simulate.memory: "asdasd"
-        simulate.cpu: "asdasd"
-        simulate.disk: "asdasd"
-        # simulate.gpu.distribution.loc: "2"
-        # simulate.gpu.distribution.scale: "3"
-        # simulate.cpu.distribution.type: "norm"
-        # simulate.gpu.distribution.type: "norm"
-        # simulate.distribution.type: "norm"
-        simulate.shutdown: "100"
-        simulate.interval: "5" 
+      # annotations:
+      #   simulate.pvc: "asdasd"
+      #   simulate.gpu: "asdasd"
+      #   simulate.memory: "asdasd"
+      #   simulate.cpu: "asdasd"
+      #   simulate.disk: "asdasd"
+      #   # simulate.gpu.distribution.loc: "2"
+      #   # simulate.gpu.distribution.scale: "3"
+      #   # simulate.cpu.distribution.type: "norm"
+      #   # simulate.gpu.distribution.type: "norm"
+      #   # simulate.distribution.type: "norm"
+      #   simulate.shutdown: "100"
+      #   simulate.interval: "5" 
       labels:
         app: nginx
     spec:

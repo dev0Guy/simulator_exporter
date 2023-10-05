@@ -15,6 +15,7 @@ class MetricSetter(Protocol):
                 pod=pod, container=c_name, node=node, namespace=namespace
             ).set(value)
 
+
 class PVCMetricSetter(MetricSetter):
     @staticmethod
     def set(metric: Metric, value: Any, **kwargs):
