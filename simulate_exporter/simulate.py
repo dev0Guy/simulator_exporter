@@ -88,8 +88,8 @@ class Simulate(pydantic.BaseModel):
                 )
             elif not already_registered:
                 _, dep_uid = get_deployment_name(body)
-                self._registration[uid] = SimulatedPod(deployment=dep_uid,**body)
-                self._registration[uid].node = spec.get("nodeName")
+                self._registration[uid] = SimulatedPod(deployment=dep_uid, **body)
+                self._registration[uid].node_name = spec.get("nodeName")
                 LogColor.info(f"Pod {name} [{uid}], has been registered")
             else:
                 LogColor.warn(f"Pod {name} [{uid}],  already as been registered")
@@ -120,7 +120,7 @@ class Simulate(pydantic.BaseModel):
                 LogColor.info("Pod Metrics are been pushed")
                 pod: SimulatedPod = self._registration[uid]
                 if not pod.is_assigned:
-                    pod.node = spec["nodeName"]
+                    pod.node_name = spec["nodeName"]
                 else:
                     pod.push_metrics()
             elif should_simulate_pod:

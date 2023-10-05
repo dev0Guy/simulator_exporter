@@ -73,145 +73,133 @@ def get_deployment_name(pod: dict) -> Optional[Tuple[str, str]]:
 
 
 class PVC(pydantic.BaseModel):
-    name: str
     namespace: str
-    capacity: Optional[float]
+    name: str
+    pres_v_claim: dict = pydantic.Field(default_factory=dict)
+    capacity: float = pydantic.Field(default=0.0)
 
-    def __pre_init__(self, key: str, **data):
-        volume: dict = data.pop(key)
-        name = volume["name"]
-        namespace: str = data.pop("namespace")
-        pvc_name = volume.get("persistentVolumeClaim", {})
-        pvc_name = pvc_name.get("claimName", "")
+    @pydantic.validator("capacity",pre=True, always=True)
+    def validate_capacity(cls, capacity: float, values: dict) -> float:
+        v_claim: dict = values.get("pres_v_claim")
+        namespace: str = values.get("namespace")
+        pvc_name = v_claim.get("claimName","")
         if pvc_name:
             pvc = V1.read_namespaced_persistent_volume_claim(
                 namespace=namespace, name=pvc_name
             )
             capacity = kubernetese_unit_convertor(pvc.status.capacity)
             capacity = capacity.get("storage")
-        else:
-            capacity = 0
-        ##############################################################
-        data["name"] = name
-        data["namespace"] = namespace
-        data["capacity"] = capacity
-        return data
-
-    def __init__(self, **data):
-        cls_name: str = __class__.__name__.lower()
-        if cls_name not in data:
-            raise ValueError(f"`{cls_name}` doesn't exist in initilization parmaters")
-        data = self.__pre_init__(key=cls_name, **data)
-        super().__init__(**data)
-
-
+        return capacity
+    
 class Container(pydantic.BaseModel):
     name: str
-    limits: Dict[str, float]
-    requests: Dict[str, float]
+    image: str
+    ports: List[dict]
+    resources: Dict[str,dict]
+    volumeMounts: List[dict]
+    terminationMessagePath: str
+    terminationMessagePolicy: str
+    imagePullPolicy: str
+    limits: Dict[str, float] = pydantic.Field(default_factory=dict,alias="resources.limits")
+    requests: Dict[str, float] = pydantic.Field(default_factory=dict,alias="resources.requests")
 
-    def __pre_init__(self, key: str, **data):
-        container: dict = data.pop(key)
+    @pydantic.validator("limits",pre=True,always=True)
+    def validate_limits(cls, _, values):
+        limits = values.get("resources").get("limits",{})
+        limits = kubernetese_unit_convertor(limits)
+        return limits
 
-        resources: dict = container["resources"]
-        requests: Optional[Dict[str, float]] = kubernetese_unit_convertor(
-            resources.get("requests", {})
-        )
-        limits: Optional[Dict[str, float]] = kubernetese_unit_convertor(
-            resources.get("limits", {})
-        )
-
-        #########################################
-        data["name"]: str = container.get("name")
-        data["requests"] = requests
-        data["limits"] = limits
-        #######################
-        return data
-
-    def __init__(self, **data):
-        cls_name: str = __class__.__name__.lower()
-        if cls_name not in data:
-            raise ValueError(f"`{cls_name}` doesn't exist in initilization parmaters")
-        data = self.__pre_init__(key=cls_name, **data)
-        super().__init__(**data)
-
+    @pydantic.validator("requests",pre=True,always=True)
+    def validate_limits(cls, _, values):
+        requests = values.get("resources").get("requests",{})
+        requests = kubernetese_unit_convertor(requests)
+        return requests
 
 class Pod(pydantic.BaseModel):
-    name: str
-    annotations: Dict[str, dict]
-    namespace: str
-    containers: Dict[str, Container]
-    volumes: Dict[str, PVC]
+    
     deployment: str
-    _node: Optional[str] = pydantic.PrivateAttr(default=None)
+    metadata: dict
+    spec: dict
+    status: dict
+    kind: str
+    apiVersion: str
+    namespace: str = pydantic.Field(default='',alias="metadata.namespace")
+    volumes: Dict[str, PVC] = pydantic.Field(default_factory=dict,alias="spec.volumes")
+    containers: Dict[str, Container] = pydantic.Field(default_factory=dict, alias="spec.containers")
+    annotations: dict = pydantic.PrivateAttr(default_factory=dict)
     _start_time: datetime = pydantic.PrivateAttr(default_factory=datetime.now)
     _schedule_time: Optional[datetime] = None
 
-    def __pre_init__(self, **data):
-        pod: dict = data.pop("pod")
-        node: str = pod.spec.get("node_name", None)
-        namespace: str = pod.metadata["namespace"]
-        name: str = pod.metadata["name"]
-        annotations: NestedDict = self._extract_annotations(pod=pod)
-        #############################################################
-        volumes: Dict[str, PVC] = dict(
-            map(
-                lambda volume: (volume.name, volume),
-                map(
-                    lambda v: PVC(pvc=v, namespace=namespace),
-                    filter(lambda x: x, pod.spec.get("volumes", [])),
-                ),
-            )
-        )
-        containers: Dict[str, Container] = dict(
-            map(
-                lambda container: (container.name, container),
-                map(lambda x: Container(container=x), pod.spec["containers"]),
-            )
-        )
-        #####################################################
-        data["containers"]: Dict[str, Container] = containers
-        data["annotations"]: NestedDict = annotations
-        data["volumes"]: Dict[str, PVC] = volumes
-        data["namespace"]: str = namespace
-        data["_node"]: str = node
-        data["name"]: str = name
-        return data
-
-    def __init__(self, **data):
-        cls_name: str = __class__.__name__.lower()
-        if cls_name not in data:
-            raise ValueError(f"`{cls_name}` doesn't exist in initilization parmaters")
-        data = self.__pre_init__(**data)
-        super().__init__(**data)
-
-    @classmethod
-    def _extract_annotations(cls, pod: dict) -> NestedDict:
-        annotations = pod.metadata.annotations
-        return NestedDict.create_from_dot_string(value=annotations)
-
-    @cache
-    def get_annotations_by_preifx(self, prefix: str) -> Dict[str, str]:
-        return list(filter(lambda k: k.startswith(prefix), self.annotations))
-
     @property
-    def node(self) -> str:
-        return self._node
-
-    @node.setter
-    def node(self, value: str):
-        self._node = value
+    def name(self) -> str:
+        return self.metadata["name"]
+    
+    @property
+    def namespace(self) -> str:
+        return self.metadata["namespace"]
+    
+    @property
+    def node_name(self) -> Optional[str]:
+        return self.spec.get("node_name")
+    
+    @node_name.setter
+    def node_name(self, name: str) -> None:
+        self.spec["node_name"] = name
         if not self._schedule_time:
             self._schedule_time = datetime.now()
-
+       
     @property
     def is_assigned(self) -> bool:
-        return bool(self.node)
+        return bool(self.node_name)
 
     @property
     def assignment_time(self) -> datetime:
         return self._schedule_time
+    
+    @property
+    def annotations(self) -> NestedDict:
+        if not self._annotations:
+            annotations = self.metadata.annotations
+            self._annotations = NestedDict.create_from_dot_string(value=annotations)
+        return self._annotations
+    
+    @pydantic.validator("namespace", pre=True, always=True)
+    def validate_namespace(cls, _, values):
+        metadata = values.get("metadata")
+        return metadata['namespace']
+        
+    @pydantic.validator("volumes", pre=True, always=True)
+    def validate_volumes(cls, _, values):
+        namespace: str = values.get("namespace")
+        spec: dict = values.get("spec")
+        volumes: dict = dict(
+            map(
+                lambda volume: (volume.name, volume),
+                map(
+                    lambda v: PVC(namespace=namespace,**v),
+                    filter(lambda x: x, spec.get("volumes", [])),
+                ),
+            )
+        )
+        return volumes
 
+    @pydantic.validator("containers", pre=True, always=True)
+    def validate_containers(cls, _, values):
+        spec: dict = values.get("spec")
+        containers: dict = dict(
+            map(
+                lambda container: (container.name, container),
+                map(lambda container: Container(**container), spec["containers"]),
+            )
+        )
+        return containers
+    
+    @pydantic.validator("annotations", pre=True, always=True)
+    def validate_annotations(cls, _, values):
+        metadata: dict = values.get("metadata")
+        annnotations = NestedDict.create_from_dot_string(value=metadata.get("annotations"))
+        return annnotations
+    
 
 class SimulatedPod(Pod):
     _shutdown: Optional[timedelta] = pydantic.PrivateAttr(default=None)
@@ -319,7 +307,7 @@ class SimulatedPod(Pod):
             containers: Dict[str, Container] = self.containers
             namespace: str = self.namespace
             deployment: str = self.deployment
-            node: str = self.node
+            node: str = self.node_name
             pod: str = self.name
             value = self._generator[_name].rvs(size=len(containers))
             for idx, (c_name, container) in enumerate(containers.items()):

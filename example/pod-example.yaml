@@ -41,7 +41,6 @@ metadata:
     # simulate.gpu.distribution.type: "norm"
     # simulate.distribution.type: "norm"
     simulate.shutdown: "100"
-    simulate.interval: "5" 
 spec:
   replicas: 1
   selector:
@@ -61,7 +60,6 @@ spec:
       #   # simulate.gpu.distribution.type: "norm"
       #   # simulate.distribution.type: "norm"
       #   simulate.shutdown: "100"
-      #   simulate.interval: "5" 
       labels:
         app: nginx
     spec:
