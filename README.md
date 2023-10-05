@@ -53,25 +53,22 @@ annotations:
   simulate.distribution.arguments.loc: "100"
   simulate.distribution.arguments.scale: "20"
 ```
-With this configuration, the CLI tool will continuously simulate GPU, memory, and CPU metrics for the deployment, and the generated metric values will follow a normal distribution with a mean of 100 and a standard deviation of 20.
-
 This feature allows you to create realistic simulations of resource usage for your Kubernetes deployments, helping you assess how your applications would perform under various conditions.
 
-```bash
-your-cli-tool-name simulate --template TEMPLATE_FILE --output OUTPUT_DIR
-```
-* --template: Path to the Jinja2 template file for deployment generation.
-* --output: Output directory where generated deployment files will be stored.
-
 **Genearte**
+Your CLI tool allows you to generate Kubernetes deployment configurations using Jinja2 templates, providing flexibility in defining various deployment settings. You can create multiple deployment configurations with distinct parameters, resource requests, and annotations by leveraging Jinja2 templates.
 
-kfsdfksdflksdmfdslfkmdsmfldskfsdlkflsf
-dskmflsmfksmfds
+#### Creating Ninja Template
+Create a Jinja2 template file (e.g., templates/deployment.j2) that defines the structure of your Kubernetes deployment. In this template, you can include placeholders for values that you want to customize for each deployment.
+#### Generating
+To generate deployments with different settings using the Jinja2 template, follow these steps:
+1. Use the generate-deployment command and specify the template file and output directory:
 ```bash
-your-cli-tool-name simulate --template TEMPLATE_FILE --output OUTPUT_DIR
+pytohn -m exporter generate <configfile> <template-to-use> <output-path>
 ```
 * --template: Path to the Jinja2 template file for deployment generation.
 * --output: Output directory where generated deployment files will be stored.
+2. The CLI tool will create multiple deployment configuration files in the specified output directory, each with its unique values based on the template.
 
 ## Jinja2 Templates
 Place your Jinja2 templates in the templates/ directory. 
@@ -81,12 +78,6 @@ These templates will be used to generate deployment files for simulation.
 Create metric simulation scripts in the metrics/ directory. 
 These scripts should generate simulated metrics data.
 
-## Running Simulations
-To run simulations and export metrics, use the following command:
-```bash 
-your-cli-tool-name simulate --template TEMPLATE_FILE --output OUTPUT_DIR
-```
-
 ## Exported Metrics
 The tool exposes simulated metrics in Prometheus format at the /metrics endpoint.
 
@@ -95,7 +86,7 @@ The tool exposes simulated metrics in Prometheus format at the /metrics endpoint
 
 ### Generate Deployments
 ```bash 
-your-cli-tool-name simulate --template templates/deployment.j2 --output generated_deployments/
+Some info
 ```
 
 ### Export Metrics
