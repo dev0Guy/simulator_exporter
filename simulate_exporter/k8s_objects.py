@@ -78,11 +78,11 @@ class PVC(pydantic.BaseModel):
     pres_v_claim: dict = pydantic.Field(default_factory=dict)
     capacity: float = pydantic.Field(default=0.0)
 
-    @pydantic.validator("capacity",pre=True, always=True)
+    @pydantic.validator("capacity", pre=True, always=True)
     def validate_capacity(cls, capacity: float, values: dict) -> float:
         v_claim: dict = values.get("pres_v_claim")
         namespace: str = values.get("namespace")
-        pvc_name = v_claim.get("claimName","")
+        pvc_name = v_claim.get("claimName", "")
         if pvc_name:
             pvc = V1.read_namespaced_persistent_volume_claim(
                 namespace=namespace, name=pvc_name
@@ -90,42 +90,49 @@ class PVC(pydantic.BaseModel):
             capacity = kubernetese_unit_convertor(pvc.status.capacity)
             capacity = capacity.get("storage")
         return capacity
-    
+
+
 class Container(pydantic.BaseModel):
     name: str
     image: str
     ports: List[dict]
-    resources: Dict[str,dict]
+    resources: Dict[str, dict]
     volumeMounts: List[dict]
     terminationMessagePath: str
     terminationMessagePolicy: str
     imagePullPolicy: str
-    limits: Dict[str, float] = pydantic.Field(default_factory=dict,alias="resources.limits")
-    requests: Dict[str, float] = pydantic.Field(default_factory=dict,alias="resources.requests")
+    limits: Dict[str, float] = pydantic.Field(
+        default_factory=dict, alias="resources.limits"
+    )
+    requests: Dict[str, float] = pydantic.Field(
+        default_factory=dict, alias="resources.requests"
+    )
 
-    @pydantic.validator("limits",pre=True,always=True)
+    @pydantic.validator("limits", pre=True, always=True)
     def validate_limits(cls, _, values):
-        limits = values.get("resources").get("limits",{})
+        limits = values.get("resources").get("limits", {})
         limits = kubernetese_unit_convertor(limits)
         return limits
 
-    @pydantic.validator("requests",pre=True,always=True)
+    @pydantic.validator("requests", pre=True, always=True)
     def validate_limits(cls, _, values):
-        requests = values.get("resources").get("requests",{})
+        requests = values.get("resources").get("requests", {})
         requests = kubernetese_unit_convertor(requests)
         return requests
 
+
 class Pod(pydantic.BaseModel):
-    
     deployment: str
     metadata: dict
     spec: dict
     status: dict
     kind: str
     apiVersion: str
-    namespace: str = pydantic.Field(default='',alias="metadata.namespace")
-    volumes: Dict[str, PVC] = pydantic.Field(default_factory=dict,alias="spec.volumes")
-    containers: Dict[str, Container] = pydantic.Field(default_factory=dict, alias="spec.containers")
+    namespace: str = pydantic.Field(default="", alias="metadata.namespace")
+    volumes: Dict[str, PVC] = pydantic.Field(default_factory=dict, alias="spec.volumes")
+    containers: Dict[str, Container] = pydantic.Field(
+        default_factory=dict, alias="spec.containers"
+    )
     annotations: dict = pydantic.PrivateAttr(default_factory=dict)
     _start_time: datetime = pydantic.PrivateAttr(default_factory=datetime.now)
     _schedule_time: Optional[datetime] = None
@@ -133,21 +140,21 @@ class Pod(pydantic.BaseModel):
     @property
     def name(self) -> str:
         return self.metadata["name"]
-    
+
     @property
     def namespace(self) -> str:
         return self.metadata["namespace"]
-    
+
     @property
     def node_name(self) -> Optional[str]:
         return self.spec.get("node_name")
-    
+
     @node_name.setter
     def node_name(self, name: str) -> None:
         self.spec["node_name"] = name
         if not self._schedule_time:
             self._schedule_time = datetime.now()
-       
+
     @property
     def is_assigned(self) -> bool:
         return bool(self.node_name)
@@ -155,19 +162,19 @@ class Pod(pydantic.BaseModel):
     @property
     def assignment_time(self) -> datetime:
         return self._schedule_time
-    
+
     @property
     def annotations(self) -> NestedDict:
         if not self._annotations:
             annotations = self.metadata.annotations
             self._annotations = NestedDict.create_from_dot_string(value=annotations)
         return self._annotations
-    
+
     @pydantic.validator("namespace", pre=True, always=True)
     def validate_namespace(cls, _, values):
         metadata = values.get("metadata")
-        return metadata['namespace']
-        
+        return metadata["namespace"]
+
     @pydantic.validator("volumes", pre=True, always=True)
     def validate_volumes(cls, _, values):
         namespace: str = values.get("namespace")
@@ -176,7 +183,7 @@ class Pod(pydantic.BaseModel):
             map(
                 lambda volume: (volume.name, volume),
                 map(
-                    lambda v: PVC(namespace=namespace,**v),
+                    lambda v: PVC(namespace=namespace, **v),
                     filter(lambda x: x, spec.get("volumes", [])),
                 ),
             )
@@ -193,13 +200,15 @@ class Pod(pydantic.BaseModel):
             )
         )
         return containers
-    
+
     @pydantic.validator("annotations", pre=True, always=True)
     def validate_annotations(cls, _, values):
         metadata: dict = values.get("metadata")
-        annnotations = NestedDict.create_from_dot_string(value=metadata.get("annotations"))
+        annnotations = NestedDict.create_from_dot_string(
+            value=metadata.get("annotations")
+        )
         return annnotations
-    
+
 
 class SimulatedPod(Pod):
     _shutdown: Optional[timedelta] = pydantic.PrivateAttr(default=None)
