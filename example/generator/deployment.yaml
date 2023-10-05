@@ -1,0 +1,17 @@
+template: "template_file"
+paramters:
+  image: nginx:latest
+  distribution: 
+    type: normal
+    arguments:
+      loc: 100
+      scale: 20
+  shutdown: 40
+  requests: 
+    memory: 100
+    cpu: 0.5
+    gpu: 1
+  limits: 
+    memory: 200
+    cpu: 4
+    gpu: 2

@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ deployment_name | default('some name') }}
+  annotations:
+    simulate.nvidia.com/gpu: ""
+    simulate.memory: ""
+    simulate.cpu: ""
+    simulate.disk: ""
+    simulate.distribution.type: "{{ paramters.distribution.type | default('normal') }}"
+    simulate.shutdown: "{{ paramters.shutdown | default(100)}}"
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+        - name: nginx-container
+          image: {{ paramters.image | default('nginx:latest')}}
+          resources:
+            requests:
+              nvidia.com/gpu: "{{ paramters.requests.gpu | default(0) }}"
+              memory: "{{ paramters.requests.memory | default(100000) }}"
+              cpu: "{{ paramters.requests.cpu | default(0.5) }}"
+            limits:
+              nvidia.com/gpu: "{{ paramters.limits.gpu | default(2) }}"
+              memory: "{{ paramters.limits.memory | default(200000) }}"
+              cpu: "{{ paramters.limits.cpu | default(1) }}"

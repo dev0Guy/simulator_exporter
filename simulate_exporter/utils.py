@@ -11,6 +11,7 @@ import os
 import re
 
 
+
 def kubernetese_load_config() -> Tuple[k8s.client.AppsV1Api, k8s.client.CoreV1Api]:
     """
     Load k8s config acording to running env, Incluster or in minikube.
@@ -36,7 +37,6 @@ def kubernetese_load_config() -> Tuple[k8s.client.AppsV1Api, k8s.client.CoreV1Ap
 def diffrent(first: dict, second: dict) -> dict:
     key_diff: set = set(first) - set(second)
     return {k: first[k] for k in key_diff}
-
 
 def get_matching_files(files: List[str], regex_pattern: str):
     matching_files = []
